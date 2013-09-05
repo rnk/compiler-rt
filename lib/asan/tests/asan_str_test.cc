@@ -61,6 +61,15 @@ TEST(AddressSanitizer, StrLenOOBTest) {
   free(heap_string);
 }
 
+TEST(AddressSanitizer, WcsLenTest) {
+  EXPECT_EQ(0, wcslen(Ident(L"")));
+  EXPECT_EQ(13, wcslen(Ident(L"Hello, World!")));
+  wchar_t *heap_string = Ident((wchar_t*)malloc(14));
+  memcpy(heap_string, L"Hello, World!", 14 * sizeof(wchar_t));
+  EXPECT_EQ(13, Ident(wcslen(heap_string)));
+  EXPECT_DEATH(Ident(wcslen(heap_string + 14)), RightOOBReadMessage(0));
+}
+
 #ifndef __APPLE__
 TEST(AddressSanitizer, StrNLenOOBTest) {
   size_t size = Ident(123);
