@@ -247,16 +247,29 @@ void InitializePlatformExceptionHandlers() {
 
 static LPTOP_LEVEL_EXCEPTION_FILTER default_seh_handler;
 
+// Return the textual name for this exception if it is deadly, and nullptr
+// otherwise.
+static const char *DescribeDeadlyException(unsigned code) {
+  switch (code) {
+    case EXCEPTION_ACCESS_VIOLATION:
+      return "access-violation";
+    case EXCEPTION_IN_PAGE_ERROR:
+      return "in-page-error";
+    case EXCEPTION_ILLEGAL_INSTRUCTION:
+      return "illegal-instruction";
+  }
+  return nullptr;
+}
+
 static long WINAPI SEHHandler(EXCEPTION_POINTERS *info) {
   EXCEPTION_RECORD *exception_record = info->ExceptionRecord;
   CONTEXT *context = info->ContextRecord;
 
-  if (exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION ||
-      exception_record->ExceptionCode == EXCEPTION_IN_PAGE_ERROR) {
-    const char *description =
-        (exception_record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION)
-            ? "access-violation"
-            : "in-page-error";
+  // Get the string description of the exception if this is a known deadly
+  // exception.
+  const char *description =
+      DescribeDeadlyException(exception_record->ExceptionCode);
+  if (description) {
     SignalContext sig = SignalContext::Create(exception_record, context);
     ReportDeadlySignal(description, sig);
   }
