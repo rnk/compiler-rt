@@ -1,7 +1,7 @@
-// RUN: %clangxx_asan -Wno-deprecated-declarations %s -o %t
-// RUN: %env_asan_opts=exitcode=123 %t | FileCheck %s
+// RUN: %clangxx_asan -g %stdcxx11 -Wno-deprecated-declarations %s -o %t
+// RUN: %env_asan_opts=exitcode=42 %t | FileCheck %s
 
-// CHECK: got expected 123 exit code
+// CHECK: got expected 42 exit code
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -9,7 +9,7 @@
 #ifdef _WIN32
 #include <windows.h>
 
-int spawn_child(const char **argv) {
+int spawn_child(char **argv) {
   // Set an environment variable to tell the child process to interrupt
   // itself.
   if (!SetEnvironmentVariableW(L"CRASH_FOR_TEST", L"1")) {
@@ -55,6 +55,8 @@ int spawn_child(const char **argv) {
 }
 #else
 #include <spawn.h>
+#include <errno.h>
+#include <sys/wait.h>
 
 #if defined(__APPLE__) && !(defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)
 #define USE_NSGETENVIRON 1
@@ -68,19 +70,20 @@ extern char **environ;
 #include <crt_externs.h> // _NSGetEnviron
 #endif
 
-int spawn_child(const char **argv) {
-  setenv("CRASH_FOR_TEST", "1");
+int spawn_child(char **argv) {
+  setenv("CRASH_FOR_TEST", "1", 1);
 
 #if !USE_NSGETENVIRON
-  const char **envp = const_cast<const char **>(environ);
+  char **envp = environ;
 #else
-  const char **envp = const_cast<const char **>(*_NSGetEnviron());
+  char **envp = *_NSGetEnviron();
 #endif
 
   pid_t pid;
   int err = posix_spawn(&pid, argv[0], nullptr, nullptr, argv, envp);
   if (err) {
     printf("posix_spawn failed: %d\n", err);
+    fflush(stdout);
     exit(1);
   }
 
@@ -89,29 +92,30 @@ int spawn_child(const char **argv) {
   pid_t wait_result_pid;
   do {
     wait_result_pid = waitpid(pid, &status, 0);
-  } while (WaitResult.Pid == -1 && errno == EINTR);
+  } while (wait_result_pid == -1 && errno == EINTR);
 
-  if (wait_result_pid != pid) {
+  if (wait_result_pid != pid || !WIFEXITED(status)) {
     printf("error in waitpid\n");
+    fflush(stdout);
     exit(1);
   }
 
   // Return the exit status.
-  return status;
+  return WEXITSTATUS(status);
 }
 #endif
 
 int main(int argc, char **argv) {
   int r = 0;
   if (getenv("CRASH_FOR_TEST")) {
-    // Generate an asan report to test ASAN_OPTIONS=exitcode=123
+    // Generate an asan report to test ASAN_OPTIONS=exitcode=42
     int *p = new int;
     delete p;
     r = *p;
   } else {
-    int exit_code = spawn_child(const_cast<const char **>(argv));
-    if (exit_code == 123) {
-      printf("got expected 123 exit code\n");
+    int exit_code = spawn_child(argv);
+    if (exit_code == 42) {
+      printf("got expected 42 exit code\n");
       fflush(stdout);
     }
   }
